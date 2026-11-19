@@ -1,0 +1,1245 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lavero Predictor — Simulateur de Confrontations Mondiales</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts : Inter & Teko (pour le look sportif/score EA FC) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Teko:wght@600;700&display=swap" rel="stylesheet">
+  <!-- Tone.js pour les effets sonores de stade et compte à rebours -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+  <!-- Canvas Confetti pour la célébration du vainqueur -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            display: ['Teko', 'sans-serif'],
+          },
+          colors: {
+            ucl: {
+              dark: '#060918',
+              card: '#0d1430',
+              accent: '#00f0ff',
+              gold: '#fbbf24',
+              purple: '#7c3aed'
+            }
+          },
+          animation: {
+            'pulse-fast': 'pulse 0.8s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            'glow': 'glow 2s ease-in-out infinite alternate',
+            'clash-left': 'clashLeft 0.4s ease-out forwards',
+            'clash-right': 'clashRight 0.4s ease-out forwards',
+          },
+          keyframes: {
+            glow: {
+              '0%': { boxShadow: '0 0 15px rgba(0, 240, 255, 0.3)' },
+              '100%': { boxShadow: '0 0 30px rgba(0, 240, 255, 0.7), 0 0 60px rgba(124, 58, 237, 0.4)' }
+            },
+            clashLeft: {
+              '0%': { transform: 'translateX(0) scale(1)' },
+              '50%': { transform: 'translateX(20px) scale(1.06)' },
+              '100%': { transform: 'translateX(0) scale(1)' }
+            },
+            clashRight: {
+              '0%': { transform: 'translateX(0) scale(1)' },
+              '50%': { transform: 'translateX(-20px) scale(1.06)' },
+              '100%': { transform: 'translateX(0) scale(1)' }
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Arrière-plan type stade nocturne Ligue des Champions */
+    body {
+      background-color: #050814;
+      background-image: 
+        radial-gradient(circle at 15% 15%, rgba(0, 240, 255, 0.12) 0%, transparent 40%),
+        radial-gradient(circle at 85% 20%, rgba(124, 58, 237, 0.15) 0%, transparent 45%),
+        radial-gradient(circle at 50% 85%, rgba(14, 165, 233, 0.1) 0%, transparent 50%);
+      color: #f8fafc;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Motif géométrique subtil type étoiles UCL */
+    .bg-stadium-grid {
+      background-size: 40px 40px;
+      background-image: linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+                        linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+    }
+
+    /* Carte FUT / EA FC Stylisée */
+    .fut-card {
+      background: linear-gradient(145deg, rgba(19, 28, 62, 0.92) 0%, rgba(9, 13, 32, 0.96) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(12px);
+    }
+
+    .fut-card-winner {
+      border: 2px solid #fbbf24 !important;
+      box-shadow: 0 0 35px rgba(251, 191, 36, 0.35), inset 0 0 20px rgba(251, 191, 36, 0.1) !important;
+    }
+
+    /* Scrollbar personnalisée pour les listes de clubs */
+    .club-list::-webkit-scrollbar {
+      width: 6px;
+    }
+    .club-list::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.6);
+      border-radius: 8px;
+    }
+    .club-list::-webkit-scrollbar-thumb {
+      background: rgba(56, 189, 248, 0.4);
+      border-radius: 8px;
+    }
+    .club-list::-webkit-scrollbar-thumb:hover {
+      background: rgba(56, 189, 248, 0.7);
+    }
+
+    /* Animation de flash au moment du verdict */
+    @keyframes verdictPop {
+      0% { transform: scale(0.75); opacity: 0; }
+      70% { transform: scale(1.04); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .animate-verdict {
+      animation: verdictPop 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    /* Étincelles centrales */
+    @keyframes sparkPulse {
+      0%, 100% { transform: scale(1) rotate(0deg); filter: brightness(1); }
+      50% { transform: scale(1.18) rotate(5deg); filter: brightness(1.4); }
+    }
+    .spark-active {
+      animation: sparkPulse 0.35s infinite;
+    }
+  </style>
+</head>
+<body class="bg-stadium-grid antialiased selection:bg-cyan-400 selection:text-slate-950">
+
+  <!-- En-tête & Tableau de bord Pronostiqueur -->
+  <header class="sticky top-0 z-40 border-b border-white/10 bg-[#060918]/85 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+      <!-- Logo & Titre -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 via-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-cyan-500/25">
+          <svg class="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 6l3.5 2.5-1.3 4h-4.4l-1.3-4L12 6z"/>
+            <path d="M12 2v4M21.5 9l-6 1.5M18 20l-3.8-3.5M6 20l3.8-3.5M2.5 9l6 1.5"/>
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="font-display text-2xl sm:text-3xl font-bold tracking-wider uppercase bg-gradient-to-r from-white via-cyan-200 to-cyan-400 bg-clip-text text-transparent leading-none">
+              LAVERO PREDICTOR
+            </h1>
+            <span class="hidden sm:inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-400/30">
+              SAISON 26/27
+            </span>
+          </div>
+          <p class="text-xs text-slate-400">Confrontations mondiales & Effectifs 2026/2027 à jour</p>
+        </div>
+      </div>
+
+      <!-- Statistiques du Joueur (Points, Série, Son) -->
+      <div class="flex items-center gap-2 sm:gap-4">
+        <div class="flex items-center gap-3 bg-slate-900/90 border border-white/10 rounded-xl px-3.5 py-1.5">
+          <div class="text-center">
+            <span class="block text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Points</span>
+            <span id="playerPoints" class="font-display text-xl font-bold text-amber-400 leading-none">0</span>
+          </div>
+          <div class="h-6 w-px bg-white/10"></div>
+          <div class="text-center">
+            <span class="block text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Série</span>
+            <span id="playerStreak" class="font-display text-xl font-bold text-cyan-400 leading-none">0 🔥</span>
+          </div>
+          <div class="h-6 w-px bg-white/10"></div>
+          <div class="text-center">
+            <span class="block text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Réussite</span>
+            <span id="playerAccuracy" class="font-display text-xl font-bold text-emerald-400 leading-none">—</span>
+          </div>
+        </div>
+
+        <!-- Bouton Audio -->
+        <button id="soundToggleBtn" onclick="toggleSound()" title="Activer/Désactiver les effets sonores"
+          class="p-2.5 rounded-xl bg-slate-900/90 border border-white/10 hover:border-cyan-400/50 text-cyan-400 transition">
+          <svg id="soundIconOn" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+          </svg>
+          <svg id="soundIconOff" class="w-5 h-5 hidden text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Conteneur Principal -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-8">
+
+    <!-- Affiches Rapides / Choc des Titans (Suggestions en 1 clic) -->
+    <section class="flex flex-wrap items-center justify-between gap-3 bg-slate-900/60 border border-white/10 rounded-2xl p-3">
+      <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-cyan-300">
+        <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+        Affiches de rêve :
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button onclick="setQuickMatch('Real Madrid', 'Paris Saint-Germain')" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/5 hover:bg-cyan-500/20 border border-white/10 hover:border-cyan-400/50 transition">
+          🇪🇸 Real Madrid vs PSG 🇫🇷
+        </button>
+        <button onclick="setQuickMatch('FC Barcelone', 'Bayern Munich')" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/5 hover:bg-cyan-500/20 border border-white/10 hover:border-cyan-400/50 transition">
+          🇪🇸 Barça vs Bayern 🇩🇪
+        </button>
+        <button onclick="setQuickMatch('Manchester City', 'Liverpool')" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/5 hover:bg-cyan-500/20 border border-white/10 hover:border-cyan-400/50 transition">
+          🏴󠁧󠁢󠁥󠁮󠁧󠁿 Man City vs Liverpool 🏴󠁧󠁢󠁥󠁮󠁧󠁿
+        </button>
+        <button onclick="setQuickMatch('Al Ahly', 'Wydad AC')" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/5 hover:bg-cyan-500/20 border border-white/10 hover:border-cyan-400/50 transition">
+          🇪🇬 Al Ahly vs Wydad AC 🇲🇦
+        </button>
+        <button onclick="setQuickMatch('Flamengo', 'River Plate')" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/5 hover:bg-cyan-500/20 border border-white/10 hover:border-cyan-400/50 transition">
+          🇧🇷 Flamengo vs River Plate 🇦🇷
+        </button>
+        <button onclick="randomizeBoth()" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-600 to-cyan-600 hover:opacity-90 text-white shadow-md transition">
+          🎲 Duel 100% Aléatoire
+        </button>
+      </div>
+    </section>
+
+    <!-- ARÈNE DE CONFRONTATION (Club 1 vs Centre VS vs Club 2) -->
+    <section class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+
+      <!-- PANNEAU CLUB 1 (DOMICILE) -->
+      <div id="homeCardWrapper" class="lg:col-span-4 fut-card rounded-3xl p-5 flex flex-col justify-between transition-all duration-300">
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <span class="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-cyan-500/15 text-cyan-300 border border-cyan-400/30">
+              🏠 Club 1 • Domicile
+            </span>
+            <button onclick="pickRandomClub(1)" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/10 hover:bg-cyan-500/25 text-white border border-white/10 transition flex items-center gap-1.5">
+              <span>Aléatoire</span> <span>🎲</span>
+            </button>
+          </div>
+
+          <!-- Carte EA FC du Club 1 sélectionné -->
+          <div id="homeSelectedDisplay" class="relative rounded-2xl p-4 mb-4 overflow-hidden border border-white/15 transition-all duration-300">
+            <!-- Rempli dynamiquement par JS -->
+          </div>
+
+          <!-- Filtres & Recherche Club 1 -->
+          <div class="space-y-2.5">
+            <div class="relative">
+              <input type="text" id="search1" oninput="renderClubList(1)" placeholder="Rechercher un club (ex: Real, PSG, Al Ahly...)"
+                class="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950/80 border border-white/10 focus:border-cyan-400 focus:outline-none text-sm text-white placeholder-slate-500">
+              <svg class="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+              </svg>
+            </div>
+            <select id="leagueFilter1" onchange="renderClubList(1)"
+              class="w-full px-3 py-2 rounded-xl bg-slate-950/80 border border-white/10 focus:border-cyan-400 focus:outline-none text-xs font-medium text-slate-200">
+              <!-- Options remplies par JS -->
+            </select>
+          </div>
+        </div>
+
+        <!-- Liste déroulante des clubs (Domicile) -->
+        <div id="clubList1" class="club-list mt-3 max-h-56 overflow-y-auto space-y-1.5 pr-1">
+          <!-- Clubs générés dynamiquement -->
+        </div>
+      </div>
+
+      <!-- ZONE CENTRALE : PRONOSTIC, CHRONO 3S & RÉSULTAT -->
+      <div class="lg:col-span-4 flex flex-col justify-between fut-card rounded-3xl p-5 sm:p-6 relative overflow-hidden border-cyan-500/20">
+        <!-- Halo décoratif -->
+        <div class="absolute -top-24 left-1/2 -translate-x-1/2 w-64 h-64 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none"></div>
+
+        <!-- Haut : Section Pronostic optionnel -->
+        <div class="relative z-10">
+          <div class="text-center mb-3">
+            <span class="text-xs font-bold uppercase tracking-widest text-amber-400">★ Ton Pronostic (Optionnel)</span>
+            <p class="text-xs text-slate-400 mt-0.5">Parie avant le coup d'envoi pour gagner des points !</p>
+          </div>
+
+          <div class="grid grid-cols-3 gap-2" id="predictionButtons">
+            <button type="button" id="betHomeBtn" onclick="selectBet('home')"
+              class="p-2.5 rounded-xl border border-white/10 bg-slate-900/80 hover:border-cyan-400/60 transition text-center flex flex-col items-center justify-center gap-1">
+              <span class="text-[10px] uppercase text-slate-400 font-bold">Victoire</span>
+              <span id="betHomeLabel" class="text-xs font-bold text-white truncate max-w-full">Club 1</span>
+            </button>
+
+            <button type="button" id="betDrawBtn" onclick="selectBet('draw')"
+              class="p-2.5 rounded-xl border border-white/10 bg-slate-900/80 hover:border-amber-400/60 transition text-center flex flex-col items-center justify-center gap-1">
+              <span class="text-[10px] uppercase text-slate-400 font-bold">Égalité</span>
+              <span class="text-xs font-bold text-white">Match Nul</span>
+            </button>
+
+            <button type="button" id="betAwayBtn" onclick="selectBet('away')"
+              class="p-2.5 rounded-xl border border-white/10 bg-slate-900/80 hover:border-purple-400/60 transition text-center flex flex-col items-center justify-center gap-1">
+              <span class="text-[10px] uppercase text-slate-400 font-bold">Victoire</span>
+              <span id="betAwayLabel" class="text-xs font-bold text-white truncate max-w-full">Club 2</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Centre : Affichage VS / Compte à rebours 3s / Résultat du match -->
+        <div id="arenaCenterStage" class="relative z-10 my-6 flex-1 flex flex-col items-center justify-center min-h-[250px] rounded-2xl bg-slate-950/70 border border-white/10 p-4 text-center">
+          
+          <!-- ÉTAT 1 : PRÊT À LANCER -->
+          <div id="stateReady" class="space-y-4 w-full">
+            <div class="flex items-center justify-center gap-4">
+              <div id="miniBadge1" class="w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg"></div>
+              <div class="font-display text-5xl font-bold italic bg-gradient-to-b from-white via-cyan-300 to-purple-500 bg-clip-text text-transparent px-2">
+                VS
+              </div>
+              <div id="miniBadge2" class="w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg"></div>
+            </div>
+
+            <div class="px-2">
+              <p id="matchupTitle" class="text-sm sm:text-base font-bold text-white">Real Madrid vs Paris Saint-Germain</p>
+              <p id="oddsIndicator" class="text-xs text-slate-400 mt-1">Probabilités équilibrées • Choc au sommet</p>
+            </div>
+          </div>
+
+          <!-- ÉTAT 2 : CHRONO DE 3 SECONDES EN COURS -->
+          <div id="stateCountdown" class="hidden w-full space-y-4">
+            <div class="flex items-center justify-center gap-3">
+              <div id="clashBadge1" class="w-14 h-14 rounded-xl flex items-center justify-center animate-clash-left"></div>
+              <div class="relative flex items-center justify-center">
+                <div class="w-24 h-24 rounded-full border-4 border-cyan-400/30 flex items-center justify-center bg-cyan-500/10 spark-active">
+                  <span id="countdownNumber" class="font-display text-6xl font-bold text-cyan-300 leading-none">3</span>
+                </div>
+              </div>
+              <div id="clashBadge2" class="w-14 h-14 rounded-xl flex items-center justify-center animate-clash-right"></div>
+            </div>
+
+            <!-- Barre de progression de 3 secondes -->
+            <div class="w-full max-w-xs mx-auto bg-slate-800 h-2.5 rounded-full overflow-hidden p-0.5">
+              <div id="countdownBar" class="h-full bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500 rounded-full transition-all duration-100" style="width: 100%"></div>
+            </div>
+
+            <p id="liveCommentary" class="text-sm font-bold text-cyan-300 animate-pulse">
+              ⚡ Analyse tactique des équipes...
+            </p>
+          </div>
+
+          <!-- ÉTAT 3 : RÉSULTAT FINAL & VAINQUEUR -->
+          <div id="stateResult" class="hidden w-full space-y-3 animate-verdict">
+            <div id="betOutcomeBanner" class="hidden px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wider mx-auto w-fit"></div>
+
+            <div class="inline-block px-3 py-0.5 rounded-full bg-amber-400/20 border border-amber-400/40 text-amber-300 text-[11px] font-bold uppercase tracking-widest">
+              FIN DU MATCH • RÉSULTAT OFFICIEL
+            </div>
+
+            <h2 id="winnerAnnouncement" class="font-display text-3xl sm:text-4xl font-bold uppercase tracking-wide text-white leading-tight">
+              VICTOIRE DU REAL MADRID !
+            </h2>
+
+            <!-- Tableau d'affichage du score -->
+            <div class="flex items-center justify-center gap-4 bg-slate-900/95 border border-white/15 rounded-2xl py-2.5 px-5 mx-auto w-fit shadow-xl">
+              <div class="text-right">
+                <span id="resHomeShort" class="block text-xs font-bold text-slate-300">RMA</span>
+              </div>
+              <div class="font-display text-4xl sm:text-5xl font-bold text-cyan-400 tracking-wider leading-none">
+                <span id="resHomeScore">2</span> - <span id="resAwayScore">1</span>
+              </div>
+              <div class="text-left">
+                <span id="resAwayShort" class="block text-xs font-bold text-slate-300">PSG</span>
+              </div>
+            </div>
+
+            <!-- Détails : Buteurs & Possession -->
+            <div id="matchEventsList" class="text-xs text-slate-300 space-y-1 max-h-24 overflow-y-auto px-2">
+              <!-- Buteurs générés par JS -->
+            </div>
+
+            <!-- Statistiques détaillées : Possession, Tirs cadrés & Corners -->
+            <div class="pt-2 space-y-2 border-t border-white/10">
+              <!-- Possession -->
+              <div>
+                <div class="flex justify-between text-[10px] font-bold text-slate-400 mb-1">
+                  <span id="possHomeText">52%</span>
+                  <span class="uppercase tracking-wider text-slate-500">Possession</span>
+                  <span id="possAwayText">48%</span>
+                </div>
+                <div class="w-full h-1.5 bg-purple-500/60 rounded-full overflow-hidden flex">
+                  <div id="possHomeBar" class="bg-cyan-400 h-full transition-all duration-500" style="width: 52%"></div>
+                </div>
+              </div>
+
+              <!-- Tirs cadrés -->
+              <div>
+                <div class="flex justify-between text-[10px] font-bold text-slate-300 mb-1">
+                  <span id="shotsHomeText" class="text-cyan-300">6</span>
+                  <span class="uppercase tracking-wider text-slate-400">🎯 Tirs cadrés</span>
+                  <span id="shotsAwayText" class="text-purple-300">4</span>
+                </div>
+                <div class="w-full h-1.5 bg-purple-500/60 rounded-full overflow-hidden flex">
+                  <div id="shotsHomeBar" class="bg-cyan-400 h-full transition-all duration-500" style="width: 60%"></div>
+                </div>
+              </div>
+
+              <!-- Corners -->
+              <div>
+                <div class="flex justify-between text-[10px] font-bold text-slate-300 mb-1">
+                  <span id="cornersHomeText" class="text-cyan-300">5</span>
+                  <span class="uppercase tracking-wider text-slate-400">🚩 Corners</span>
+                  <span id="cornersAwayText" class="text-purple-300">3</span>
+                </div>
+                <div class="w-full h-1.5 bg-purple-500/60 rounded-full overflow-hidden flex">
+                  <div id="cornersHomeBar" class="bg-cyan-400 h-full transition-all duration-500" style="width: 62%"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Bas : Gros bouton central LANCER LE DUEL / REJOUER -->
+        <div class="relative z-10">
+          <button id="launchDuelBtn" onclick="startDuel()"
+            class="w-full py-4 px-6 rounded-2xl font-display text-2xl sm:text-3xl font-bold uppercase tracking-wider text-slate-950 bg-gradient-to-r from-cyan-400 via-sky-300 to-amber-300 hover:brightness-110 active:scale-[0.98] transition-all shadow-lg animate-glow flex items-center justify-center gap-3 cursor-pointer">
+            <span>⚡ LANCER LE DUEL (3s)</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- PANNEAU CLUB 2 (EXTÉRIEUR) -->
+      <div id="awayCardWrapper" class="lg:col-span-4 fut-card rounded-3xl p-5 flex flex-col justify-between transition-all duration-300">
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <span class="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-purple-500/15 text-purple-300 border border-purple-400/30">
+              ✈️ Club 2 • Extérieur
+            </span>
+            <button onclick="pickRandomClub(2)" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/10 hover:bg-purple-500/25 text-white border border-white/10 transition flex items-center gap-1.5">
+              <span>Aléatoire</span> <span>🎲</span>
+            </button>
+          </div>
+
+          <!-- Carte EA FC du Club 2 sélectionné -->
+          <div id="awaySelectedDisplay" class="relative rounded-2xl p-4 mb-4 overflow-hidden border border-white/15 transition-all duration-300">
+            <!-- Rempli dynamiquement par JS -->
+          </div>
+
+          <!-- Filtres & Recherche Club 2 -->
+          <div class="space-y-2.5">
+            <div class="relative">
+              <input type="text" id="search2" oninput="renderClubList(2)" placeholder="Rechercher un club (ex: Man City, Barça...)"
+                class="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950/80 border border-white/10 focus:border-purple-400 focus:outline-none text-sm text-white placeholder-slate-500">
+              <svg class="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+              </svg>
+            </div>
+            <select id="leagueFilter2" onchange="renderClubList(2)"
+              class="w-full px-3 py-2 rounded-xl bg-slate-950/80 border border-white/10 focus:border-purple-400 focus:outline-none text-xs font-medium text-slate-200">
+              <!-- Options remplies par JS -->
+            </select>
+          </div>
+        </div>
+
+        <!-- Liste déroulante des clubs (Extérieur) -->
+        <div id="clubList2" class="club-list mt-3 max-h-56 overflow-y-auto space-y-1.5 pr-1">
+          <!-- Clubs générés dynamiquement -->
+        </div>
+      </div>
+
+    </section>
+
+    <!-- HISTORIQUE DES CONFRONTATIONS RÉCENTES -->
+    <section class="fut-card rounded-3xl p-5 sm:p-6">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2.5">
+          <span class="w-2.5 h-6 rounded-full bg-gradient-to-b from-cyan-400 to-purple-500"></span>
+          <h3 class="font-display text-2xl font-bold uppercase tracking-wide text-white">
+            Historique des Confrontations Récentes
+          </h3>
+        </div>
+        <button onclick="clearHistory()" class="text-xs text-slate-400 hover:text-rose-400 transition">
+          Effacer l'historique
+        </button>
+      </div>
+
+      <div id="matchHistoryContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div class="col-span-full text-center py-8 text-sm text-slate-500 border border-dashed border-white/10 rounded-2xl">
+          Aucun duel disputé pour le moment. Choisissez deux clubs et lancez le chrono de 3 secondes !
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Boîte de notification personnalisée (remplace alert()) -->
+  <div id="toastMessage" class="fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-none">
+    <div class="bg-slate-900 border border-cyan-400/50 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 text-sm font-medium">
+      <span id="toastIcon">⚽</span>
+      <span id="toastText">Notification</span>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * ============================================================================
+     * BASE DE DONNÉES MONDIALE DES CLUBS DE FOOTBALL
+     * Contient les clubs demandés avec ligue, pays, drapeau, note OVR, couleurs
+     * officielles et joueurs vedettes pour générer des buteurs réalistes.
+     * ============================================================================
+     */
+    const CLUBS_DB = [
+      // ESPAGNE (LaLiga) — Effectifs 2026/2027
+      { id: 'rma', name: 'Real Madrid', short: 'RMA', league: 'Espagne (LaLiga)', country: 'Espagne', flag: '🇪🇸', ovr: 93, c1: '#ffffff', c2: '#eab308', textDark: true, stars: ['Mbappé', 'Vinícius Jr', 'Bellingham', 'Alexander-Arnold', 'Bernardo Silva', 'Yan Diomandé', 'Valverde', 'Arda Güler'] },
+      { id: 'fcb', name: 'FC Barcelone', short: 'BAR', league: 'Espagne (LaLiga)', country: 'Espagne', flag: '🇪🇸', ovr: 91, c1: '#1d4ed8', c2: '#b91c1c', textDark: false, stars: ['Lamine Yamal', 'Raphinha', 'Rodri', 'Anthony Gordon', 'Karim Adeyemi', 'Gabriel Jesus', 'Pedri', 'Dani Olmo'] },
+      { id: 'atm', name: 'Atlético Madrid', short: 'ATM', league: 'Espagne (LaLiga)', country: 'Espagne', flag: '🇪🇸', ovr: 87, c1: '#dc2626', c2: '#f8fafc', textDark: false, stars: ['Julián Álvarez', 'Ademola Lookman', 'Jonathan David', 'Álex Baena', 'Lee Kang-in', 'Sørloth', 'Cristian Romero'] },
+      { id: 'ath', name: 'Athletic Bilbao', short: 'ATH', league: 'Espagne (LaLiga)', country: 'Espagne', flag: '🇪🇸', ovr: 83, c1: '#dc2626', c2: '#111827', textDark: false, stars: ['Nico Williams', 'Iñaki Williams', 'Oihan Sancet', 'Vivian'] },
+      { id: 'rso', name: 'Real Sociedad', short: 'RSO', league: 'Espagne (LaLiga)', country: 'Espagne', flag: '🇪🇸', ovr: 82, c1: '#0284c7', c2: '#ffffff', textDark: false, stars: ['Takefusa Kubo', 'Oyarzabal', 'Óskarsson', 'Brais Méndez'] },
+      { id: 'sev', name: 'Séville FC', short: 'SEV', league: 'Espagne (LaLiga)', country: 'Espagne', flag: '🇪🇸', ovr: 80, c1: '#ffffff', c2: '#dc2626', textDark: true, stars: ['Lukebakio', 'Isaac Romero', 'Ejuke', 'Agoumé'] },
+      { id: 'vil', name: 'Villarreal', short: 'VIL', league: 'Espagne (LaLiga)', country: 'Espagne', flag: '🇪🇸', ovr: 82, c1: '#facc15', c2: '#1e3a8a', textDark: true, stars: ['Gerard Moreno', 'Ayoze Pérez', 'Thierno Barry', 'Yeremy Pino'] },
+
+      // FRANCE (Ligue 1) — Effectifs 2026/2027
+      { id: 'psg', name: 'Paris Saint-Germain', short: 'PSG', league: 'France (Ligue 1)', country: 'France', flag: '🇫🇷', ovr: 90, c1: '#0f172a', c2: '#dc2626', textDark: false, stars: ['Ousmane Dembélé', 'Kvaratskhelia', 'Désiré Doué', 'Ferran Torres', 'Maghnes Akliouche', 'Vitinha', 'João Neves', 'Hakimi'] },
+      { id: 'om', name: 'Olympique de Marseille', short: 'OM', league: 'France (Ligue 1)', country: 'France', flag: '🇫🇷', ovr: 83, c1: '#ffffff', c2: '#0ea5e9', textDark: true, stars: ['Amine Gouiri', 'Igor Paixão', 'Angel Gomes', 'Højbjerg', 'Timothy Weah', 'Himad Abdelli', 'Neal Maupay'] },
+      { id: 'asm', name: 'AS Monaco', short: 'ASM', league: 'France (Ligue 1)', country: 'France', flag: '🇫🇷', ovr: 83, c1: '#dc2626', c2: '#ffffff', textDark: false, stars: ['Paris Brunner', 'Aleksandr Golovin', 'Ansu Fati', 'Mika Biereth', 'Denis Zakaria', 'Lamine Camara'] },
+      { id: 'ol', name: 'Olympique Lyonnais', short: 'OL', league: 'France (Ligue 1)', country: 'France', flag: '🇫🇷', ovr: 82, c1: '#ffffff', c2: '#1d4ed8', textDark: true, stars: ['Ernest Nuamah', 'Keito Nakamura', 'Corentin Tolisso', 'Pavel Šulc', 'Tanner Tessmann'] },
+      { id: 'losc', name: 'LOSC Lille', short: 'LOSC', league: 'France (Ligue 1)', country: 'France', flag: '🇫🇷', ovr: 82, c1: '#be123c', c2: '#1e293b', textDark: false, stars: ['Matias Fernandez-Pardo', 'Osame Sahraoui', 'Ayyoub Bouaddi', 'Haraldsson', 'Benjamin André'] },
+      { id: 'nice', name: 'OGC Nice', short: 'OGCN', league: 'France (Ligue 1)', country: 'France', flag: '🇫🇷', ovr: 81, c1: '#dc2626', c2: '#09090b', textDark: false, stars: ['Evann Guessand', 'Sofiane Diop', 'Mohamed-Ali Cho', 'Terem Moffi'] },
+
+      // ANGLETERRE (Premier League) — Effectifs 2026/2027
+      { id: 'mci', name: 'Manchester City', short: 'MCI', league: 'Angleterre (Premier League)', country: 'Angleterre', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', ovr: 92, c1: '#38bdf8', c2: '#1e3a8a', textDark: true, stars: ['Erling Haaland', 'Phil Foden', 'Rayan Cherki', 'Enzo Fernández', 'Jérémy Doku', 'Antoine Semenyo', 'Donnarumma'] },
+      { id: 'liv', name: 'Liverpool', short: 'LIV', league: 'Angleterre (Premier League)', country: 'Angleterre', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', ovr: 92, c1: '#b91c1c', c2: '#f59e0b', textDark: false, stars: ['Alexander Isak', 'Florian Wirtz', 'Bradley Barcola', 'Hugo Ekitiké', 'Cody Gakpo', 'Mac Allister', 'Szoboszlai', 'Van Dijk'] },
+      { id: 'ars', name: 'Arsenal', short: 'ARS', league: 'Angleterre (Premier League)', country: 'Angleterre', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', ovr: 90, c1: '#dc2626', c2: '#ffffff', textDark: false, stars: ['Bukayo Saka', 'Martin Ødegaard', 'Declan Rice', 'Martín Zubimendi', 'Bruno Guimarães', 'William Saliba', 'Max Dowman'] },
+      { id: 'che', name: 'Chelsea', short: 'CHE', league: 'Angleterre (Premier League)', country: 'Angleterre', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', ovr: 87, c1: '#1d4ed8', c2: '#f8fafc', textDark: false, stars: ['Cole Palmer', 'Estêvão', 'João Pedro', 'Morgan Rogers', 'Pedro Neto', 'Moisés Caicedo', 'Emiliano Martínez'] },
+      { id: 'mun', name: 'Manchester United', short: 'MUN', league: 'Angleterre (Premier League)', country: 'Angleterre', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', ovr: 86, c1: '#dc2626', c2: '#111827', textDark: false, stars: ['Bruno Fernandes', 'Benjamin Šeško', 'Matheus Cunha', 'Bryan Mbeumo', 'Amad Diallo', 'Marcus Rashford', 'Kobbie Mainoo'] },
+      { id: 'tot', name: 'Tottenham', short: 'TOT', league: 'Angleterre (Premier League)', country: 'Angleterre', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', ovr: 86, c1: '#ffffff', c2: '#0f172a', textDark: true, stars: ['Omar Marmoush', 'Xavi Simons', 'Mohammed Kudus', 'Sávio', 'James Maddison', 'Dominic Solanke', 'Sandro Tonali'] },
+      { id: 'new', name: 'Newcastle', short: 'NEW', league: 'Angleterre (Premier League)', country: 'Angleterre', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', ovr: 84, c1: '#18181b', c2: '#f8fafc', textDark: false, stars: ['Anthony Elanga', 'Harvey Barnes', 'Joelinton', 'Lewis Hall', 'Tino Livramento'] },
+      { id: 'avl', name: 'Aston Villa', short: 'AVL', league: 'Angleterre (Premier League)', country: 'Angleterre', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', ovr: 84, c1: '#7f1d1d', c2: '#38bdf8', textDark: false, stars: ['Leon Goretzka', 'Amadou Onana', 'John McGinn', 'Boubacar Kamara', 'João Gomes'] },
+
+      // ITALIE (Serie A) — Effectifs 2026/2027
+      { id: 'int', name: 'Inter Milan', short: 'INT', league: 'Italie (Serie A)', country: 'Italie', flag: '🇮🇹', ovr: 89, c1: '#1d4ed8', c2: '#09090b', textDark: false, stars: ['Lautaro Martínez', 'Marcus Thuram', 'Nicolò Barella', 'Pio Esposito', 'Federico Dimarco', 'Çalhanoğlu', 'Curtis Jones'] },
+      { id: 'acm', name: 'AC Milan', short: 'MIL', league: 'Italie (Serie A)', country: 'Italie', flag: '🇮🇹', ovr: 86, c1: '#dc2626', c2: '#09090b', textDark: false, stars: ['Gonçalo Ramos', 'Christian Pulisic', 'Adrien Rabiot', 'Luka Modrić', 'Francesco Camarda', 'Mike Maignan'] },
+      { id: 'nap', name: 'Napoli', short: 'NAP', league: 'Italie (Serie A)', country: 'Italie', flag: '🇮🇹', ovr: 87, c1: '#0284c7', c2: '#ffffff', textDark: false, stars: ['Kevin De Bruyne', 'Rasmus Højlund', 'Scott McTominay', 'David Neres', 'Noa Lang', 'Lorenzo Lucca'] },
+      { id: 'juv', name: 'Juventus', short: 'JUV', league: 'Italie (Serie A)', country: 'Italie', flag: '🇮🇹', ovr: 86, c1: '#ffffff', c2: '#09090b', textDark: true, stars: ['Kenan Yıldız', 'Randal Kolo Muani', 'Nick Woltemade', 'Francisco Conceição', 'Khéphren Thuram', 'Edon Zhegrova'] },
+      { id: 'rom', name: 'AS Roma', short: 'ROM', league: 'Italie (Serie A)', country: 'Italie', flag: '🇮🇹', ovr: 83, c1: '#991b1b', c2: '#f59e0b', textDark: false, stars: ['Paulo Dybala', 'Artem Dovbyk', 'Matías Soulé', 'Manu Koné'] },
+      { id: 'ata', name: 'Atalanta', short: 'ATA', league: 'Italie (Serie A)', country: 'Italie', flag: '🇮🇹', ovr: 85, c1: '#1e40af', c2: '#09090b', textDark: false, stars: ['Mateo Retegui', 'Charles De Ketelaere', 'Éderson', 'Scamacca', 'Samardžić'] },
+      { id: 'laz', name: 'Lazio', short: 'LAZ', league: 'Italie (Serie A)', country: 'Italie', flag: '🇮🇹', ovr: 83, c1: '#7dd3fc', c2: '#ffffff', textDark: true, stars: ['Mattia Zaccagni', 'Davide Frattesi', 'Castellanos', 'Rovella'] },
+
+      // ALLEMAGNE (Bundesliga) — Effectifs 2026/2027
+      { id: 'bay', name: 'Bayern Munich', short: 'BAY', league: 'Allemagne (Bundesliga)', country: 'Allemagne', flag: '🇩🇪', ovr: 91, c1: '#dc2626', c2: '#ffffff', textDark: false, stars: ['Harry Kane', 'Jamal Musiala', 'Michael Olise', 'Luis Díaz', 'Joshua Kimmich', 'Ismael Saibari', 'Tom Bischof'] },
+      { id: 'bvb', name: 'Borussia Dortmund', short: 'BVB', league: 'Allemagne (Bundesliga)', country: 'Allemagne', flag: '🇩🇪', ovr: 85, c1: '#facc15', c2: '#09090b', textDark: true, stars: ['Serhou Guirassy', 'Julian Brandt', 'Maximilian Beier', 'Felix Nmecha', 'Schlotterbeck'] },
+      { id: 'lev', name: 'Bayer Leverkusen', short: 'B04', league: 'Allemagne (Bundesliga)', country: 'Allemagne', flag: '🇩🇪', ovr: 85, c1: '#09090b', c2: '#dc2626', textDark: false, stars: ['Victor Boniface', 'Patrik Schick', 'Exequiel Palacios', 'Aleix García', 'Tapsoba'] },
+      { id: 'rbl', name: 'RB Leipzig', short: 'RBL', league: 'Allemagne (Bundesliga)', country: 'Allemagne', flag: '🇩🇪', ovr: 84, c1: '#ffffff', c2: '#dc2626', textDark: true, stars: ['Loïs Openda', 'Antonio Nusa', 'Castello Lukeba', 'Baumgartner'] },
+      { id: 'sge', name: 'Eintracht Frankfurt', short: 'SGE', league: 'Allemagne (Bundesliga)', country: 'Allemagne', flag: '🇩🇪', ovr: 82, c1: '#09090b', c2: '#dc2626', textDark: false, stars: ['Can Uzun', 'Mario Götze', 'Nathaniel Brown', 'Kristensen'] },
+
+      // PORTUGAL & PAYS-BAS — Effectifs 2026/2027
+      { id: 'ben', name: 'Benfica', short: 'SLB', league: 'Portugal & Pays-Bas', country: 'Portugal', flag: '🇵🇹', ovr: 84, c1: '#dc2626', c2: '#ffffff', textDark: false, stars: ['Vangelis Pavlidis', 'Jhon Durán', 'Kerem Aktürkoğlu', 'Orkun Kökçü'] },
+      { id: 'por', name: 'FC Porto', short: 'FCP', league: 'Portugal & Pays-Bas', country: 'Portugal', flag: '🇵🇹', ovr: 83, c1: '#1d4ed8', c2: '#ffffff', textDark: false, stars: ['Samu Aghehowa', 'Rodrigo Mora', 'Pepê', 'Alan Varela'] },
+      { id: 'scp', name: 'Sporting CP', short: 'SCP', league: 'Portugal & Pays-Bas', country: 'Portugal', flag: '🇵🇹', ovr: 84, c1: '#15803d', c2: '#ffffff', textDark: false, stars: ['Pedro Gonçalves', 'Francisco Trincão', 'Conrad Harder', 'Diomande'] },
+      { id: 'aja', name: 'Ajax Amsterdam', short: 'AJA', league: 'Portugal & Pays-Bas', country: 'Pays-Bas', flag: '🇳🇱', ovr: 82, c1: '#ffffff', c2: '#dc2626', textDark: true, stars: ['Brian Brobbey', 'Kenneth Taylor', 'Jorrel Hato', 'Ter Stegen'] },
+      { id: 'psv', name: 'PSV Eindhoven', short: 'PSV', league: 'Portugal & Pays-Bas', country: 'Pays-Bas', flag: '🇳🇱', ovr: 82, c1: '#dc2626', c2: '#ffffff', textDark: false, stars: ['Johan Bakayoko', 'Malik Tillman', 'Joey Veerman', 'Ricardo Pepi'] },
+      { id: 'fey', name: 'Feyenoord', short: 'FEY', league: 'Portugal & Pays-Bas', country: 'Pays-Bas', flag: '🇳🇱', ovr: 81, c1: '#dc2626', c2: '#111827', textDark: false, stars: ['Antoni Milambo', 'Quinten Timber', 'Ayase Ueda', 'Hadj Moussa'] },
+
+      // AMÉRIQUES (Brésil, Argentine, MLS) — Effectifs 2026/2027
+      { id: 'fla', name: 'Flamengo', short: 'FLA', league: 'Amériques (Brésil, Argentine, MLS)', country: 'Brésil', flag: '🇧🇷', ovr: 83, c1: '#dc2626', c2: '#09090b', textDark: false, stars: ['Pedro', 'De Arrascaeta', 'Gerson', 'Luiz Araújo'] },
+      { id: 'pal', name: 'Palmeiras', short: 'PAL', league: 'Amériques (Brésil, Argentine, MLS)', country: 'Brésil', flag: '🇧🇷', ovr: 82, c1: '#15803d', c2: '#ffffff', textDark: false, stars: ['Raphael Veiga', 'Flaco López', 'Facundo Torres', 'Paulinho'] },
+      { id: 'sao', name: 'São Paulo', short: 'SAO', league: 'Amériques (Brésil, Argentine, MLS)', country: 'Brésil', flag: '🇧🇷', ovr: 80, c1: '#ffffff', c2: '#dc2626', textDark: true, stars: ['Lucas Moura', 'Oscar', 'Jonathan Calleri', 'Luciano'] },
+      { id: 'cor', name: 'Corinthians', short: 'COR', league: 'Amériques (Brésil, Argentine, MLS)', country: 'Brésil', flag: '🇧🇷', ovr: 81, c1: '#ffffff', c2: '#09090b', textDark: true, stars: ['Memphis Depay', 'Yuri Alberto', 'Rodrigo Garro', 'Kaio César'] },
+      { id: 'flu', name: 'Fluminense', short: 'FLU', league: 'Amériques (Brésil, Argentine, MLS)', country: 'Brésil', flag: '🇧🇷', ovr: 79, c1: '#7f1d1d', c2: '#15803d', textDark: false, stars: ['Jhon Arias', 'Germán Cano', 'Ganso', 'Martinelli'] },
+      { id: 'riv', name: 'River Plate', short: 'RIV', league: 'Amériques (Brésil, Argentine, MLS)', country: 'Argentine', flag: '🇦🇷', ovr: 82, c1: '#ffffff', c2: '#dc2626', textDark: true, stars: ['Miguel Borja', 'Facundo Colidio', 'Sebastián Driussi', 'Montiel'] },
+      { id: 'boc', name: 'Boca Juniors', short: 'BOC', league: 'Amériques (Brésil, Argentine, MLS)', country: 'Argentine', flag: '🇦🇷', ovr: 81, c1: '#1e3a8a', c2: '#facc15', textDark: false, stars: ['Edinson Cavani', 'Ander Herrera', 'Alan Velasco', 'Kevin Zenón'] },
+      { id: 'mia', name: 'Inter Miami', short: 'MIA', league: 'Amériques (Brésil, Argentine, MLS)', country: 'États-Unis', flag: '🇺🇸', ovr: 83, c1: '#f472b6', c2: '#09090b', textDark: true, stars: ['Lionel Messi', 'Luis Suárez', 'Casemiro', 'Rodrigo De Paul', 'Germán Berterame'] },
+      { id: 'lag', name: 'LA Galaxy', short: 'LAG', league: 'Amériques (Brésil, Argentine, MLS)', country: 'États-Unis', flag: '🇺🇸', ovr: 79, c1: '#ffffff', c2: '#1e3a8a', textDark: true, stars: ['Riqui Puig', 'Gabriel Pec', 'Joseph Paintsil', 'Marco Reus'] },
+
+      // AFRIQUE (CAF) — Effectifs 2026/2027
+      { id: 'ahl', name: 'Al Ahly', short: 'AHL', league: 'Afrique (CAF)', country: 'Égypte', flag: '🇪🇬', ovr: 81, c1: '#dc2626', c2: '#facc15', textDark: false, stars: ['Wessam Abou Ali', 'Emam Ashour', 'Achraf Bencharki', 'Trezeguet'] },
+      { id: 'wac', name: 'Wydad AC', short: 'WAC', league: 'Afrique (CAF)', country: 'Maroc', flag: '🇲🇦', ovr: 78, c1: '#dc2626', c2: '#ffffff', textDark: false, stars: ['Mohamed Rayhi', 'Cassius Mailula', 'Oussama Zemraoui', 'Moutaraji'] },
+      { id: 'rca', name: 'Raja CA', short: 'RCA', league: 'Afrique (CAF)', country: 'Maroc', flag: '🇲🇦', ovr: 78, c1: '#15803d', c2: '#ffffff', textDark: false, stars: ['Yousri Bouzok', 'Adam Ennafati', 'Sabir Bougrine', 'Zniti'] },
+      { id: 'est', name: 'Espérance de Tunis', short: 'EST', league: 'Afrique (CAF)', country: 'Tunisie', flag: '🇹🇳', ovr: 79, c1: '#dc2626', c2: '#facc15', textDark: false, stars: ['Youcef Belaïli', 'Yan Sasse', 'Rodrigo Rodrigues', 'Tougaï'] },
+      { id: 'msd', name: 'Mamelodi Sundowns', short: 'MSD', league: 'Afrique (CAF)', country: 'Afrique du Sud', flag: '🇿🇦', ovr: 79, c1: '#facc15', c2: '#15803d', textDark: true, stars: ['Lucas Ribeiro', 'Peter Shalulile', 'Teboho Mokoena', 'Themba Zwane'] },
+      { id: 'tpm', name: 'TP Mazembe', short: 'TPM', league: 'Afrique (CAF)', country: 'RD Congo', flag: '🇨🇩', ovr: 77, c1: '#09090b', c2: '#ffffff', textDark: false, stars: ['Cheick Fofana', 'Philippe Kinzumbi', 'Glody Likonza'] },
+      { id: 'asec', name: 'ASEC Mimosas', short: 'ASEC', league: 'Afrique (CAF)', country: 'Côte d\'Ivoire', flag: '🇨🇮', ovr: 77, c1: '#facc15', c2: '#09090b', textDark: true, stars: ['Salifou Diarrassouba', 'Essis Aka', 'Célestin Ecua'] },
+
+      // ASIE & MOYEN-ORIENT — Effectifs 2026/2027
+      { id: 'hil', name: 'Al-Hilal', short: 'HIL', league: 'Asie & Moyen-Orient', country: 'Arabie Saoudite', flag: '🇸🇦', ovr: 87, c1: '#1d4ed8', c2: '#ffffff', textDark: false, stars: ['Ollie Watkins', 'Gabriel Martinelli', 'Theo Hernández', 'Milinković-Savić', 'Rúben Neves', 'Summerville', 'Bounou'] },
+      { id: 'nas', name: 'Al-Nassr', short: 'NAS', league: 'Asie & Moyen-Orient', country: 'Arabie Saoudite', flag: '🇸🇦', ovr: 85, c1: '#facc15', c2: '#1d4ed8', textDark: true, stars: ['Cristiano Ronaldo', 'João Félix', 'Kingsley Coman', 'Sadio Mané', 'Iñigo Martínez', 'Simakan'] },
+      { id: 'itt', name: 'Al-Ittihad', short: 'ITT', league: 'Asie & Moyen-Orient', country: 'Arabie Saoudite', flag: '🇸🇦', ovr: 83, c1: '#facc15', c2: '#09090b', textDark: true, stars: ['Karim Benzema', 'Moussa Diaby', 'N\'Golo Kanté', 'Steven Bergwijn', 'Houssem Aouar'] },
+      { id: 'ura', name: 'Urawa Red Diamonds', short: 'URA', league: 'Asie & Moyen-Orient', country: 'Japon', flag: '🇯🇵', ovr: 77, c1: '#dc2626', c2: '#09090b', textDark: false, stars: ['Thiago Santana', 'Ryoma Watanabe', 'Matheus Sávio'] },
+      { id: 'vis', name: 'Vissel Kobe', short: 'VIS', league: 'Asie & Moyen-Orient', country: 'Japon', flag: '🇯🇵', ovr: 78, c1: '#881337', c2: '#ffffff', textDark: false, stars: ['Yuya Osako', 'Yoshinori Muto', 'Gotoku Sakai'] }
+    ];
+
+    /**
+     * ============================================================================
+     * ÉTAT GLOBAL DE L'APPLICATION
+     * ============================================================================
+     */
+    let state = {
+      club1: CLUBS_DB.find(c => c.name === 'Real Madrid'),
+      club2: CLUBS_DB.find(c => c.name === 'Paris Saint-Germain'),
+      currentBet: null, // 'home' | 'draw' | 'away' | null
+      isSimulating: false,
+      soundEnabled: true,
+      stats: {
+        points: 0,
+        streak: 0,
+        totalBets: 0,
+        wonBets: 0
+      },
+      history: []
+    };
+
+    /**
+     * ============================================================================
+     * SYNTHÉTISEUR AUDIO (Tone.js) — Bips chrono & Coup de sifflet final
+     * ============================================================================
+     */
+    function playSound(type) {
+      if (!state.soundEnabled || typeof Tone === 'undefined') return;
+      try {
+        if (Tone.context.state !== 'running') {
+          Tone.start();
+        }
+        const synth = new Tone.Synth({
+          oscillator: { type: 'triangle' },
+          envelope: { attack: 0.01, decay: 0.15, sustain: 0.05, release: 0.2 }
+        }).toDestination();
+
+        if (type === 'tick') {
+          synth.triggerAttackRelease('C5', '16n');
+        } else if (type === 'tickFinal') {
+          synth.triggerAttackRelease('G5', '8n');
+        } else if (type === 'whistle') {
+          // Accord triomphant de fin de match
+          const poly = new Tone.PolySynth(Tone.Synth).toDestination();
+          poly.volume.value = -6;
+          poly.triggerAttackRelease(['C5', 'E5', 'G5', 'C6'], '4n');
+        } else if (type === 'select') {
+          synth.volume.value = -12;
+          synth.triggerAttackRelease('E4', '32n');
+        }
+      } catch (e) {
+        // Ignorer silencieusement si l'audio est bloqué par le navigateur
+      }
+    }
+
+    function toggleSound() {
+      state.soundEnabled = !state.soundEnabled;
+      document.getElementById('soundIconOn').classList.toggle('hidden', !state.soundEnabled);
+      document.getElementById('soundIconOff').classList.toggle('hidden', state.soundEnabled);
+      showToast(state.soundEnabled ? 'Effets sonores activés 🔊' : 'Effets sonores coupés 🔇', '🔊');
+    }
+
+    /**
+     * ============================================================================
+     * GÉNÉRATEUR DE BLASONS SVG STYLISÉS PAR CLUB
+     * ============================================================================
+     */
+    function getClubBadgeSVG(club, sizeClass = 'w-14 h-14') {
+      const textColor = club.textDark ? '#0f172a' : '#ffffff';
+      const strokeColor = club.textDark ? 'rgba(15,23,42,0.25)' : 'rgba(255,255,255,0.35)';
+      const gradId = `grad_${club.id}_${Math.floor(Math.random() * 10000)}`;
+
+      return `
+        <svg class="${sizeClass} drop-shadow-md flex-shrink-0" viewBox="0 0 100 110" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="${gradId}" x1="0" y1="0" x2="100" y2="110" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="${club.c1}"/>
+              <stop offset="100%" stop-color="${club.c2}"/>
+            </linearGradient>
+          </defs>
+          <!-- Bouclier extérieur -->
+          <path d="M50 5 L90 20 V55 C90 82 50 105 50 105 C50 105 10 82 10 55 V20 L50 5 Z"
+                fill="url(#${gradId})" stroke="${strokeColor}" stroke-width="4"/>
+          <!-- Bande diagonale subtile -->
+          <path d="M22 25 L78 80" stroke="${strokeColor}" stroke-width="8" stroke-linecap="round"/>
+          <!-- Initiales du club -->
+          <text x="50" y="62" text-anchor="middle" fill="${textColor}"
+                font-family="Teko, sans-serif" font-weight="700" font-size="28" letter-spacing="1">
+            ${club.short}
+          </text>
+        </svg>
+      `;
+    }
+
+    /**
+     * ============================================================================
+     * INITIALISATION & RENDU DES LISTES DE CLUBS
+     * ============================================================================
+     */
+    function initApp() {
+      // Récupérer toutes les ligues uniques
+      const leagues = ['Toutes les ligues', ...new Set(CLUBS_DB.map(c => c.league))];
+      ['leagueFilter1', 'leagueFilter2'].forEach(selectId => {
+        const select = document.getElementById(selectId);
+        select.innerHTML = leagues.map(l => `<option value="${l}">${l}</option>`).join('');
+      });
+
+      renderClubList(1);
+      renderClubList(2);
+      updateMatchupUI();
+    }
+
+    function renderClubList(slot) {
+      const searchVal = document.getElementById(`search${slot}`).value.toLowerCase().trim();
+      const leagueVal = document.getElementById(`leagueFilter${slot}`).value;
+      const listContainer = document.getElementById(`clubList${slot}`);
+      const selectedClub = slot === 1 ? state.club1 : state.club2;
+
+      const filtered = CLUBS_DB.filter(club => {
+        const matchSearch = club.name.toLowerCase().includes(searchVal) ||
+                            club.country.toLowerCase().includes(searchVal) ||
+                            club.short.toLowerCase().includes(searchVal);
+        const matchLeague = leagueVal === 'Toutes les ligues' || club.league === leagueVal;
+        return matchSearch && matchLeague;
+      });
+
+      if (filtered.length === 0) {
+        listContainer.innerHTML = `<p class="text-xs text-slate-400 text-center py-4">Aucun club trouvé pour cette recherche.</p>`;
+        return;
+      }
+
+      listContainer.innerHTML = filtered.map(club => {
+        const isSelected = selectedClub.id === club.id;
+        const activeClasses = isSelected
+          ? (slot === 1 ? 'bg-cyan-500/20 border-cyan-400 text-white' : 'bg-purple-500/20 border-purple-400 text-white')
+          : 'bg-slate-900/60 border-white/5 hover:bg-white/10 text-slate-200';
+
+        return `
+          <button type="button" onclick="selectClub(${slot}, '${club.id}')"
+            class="w-full flex items-center justify-between p-2 rounded-xl border ${activeClasses} transition text-left group">
+            <div class="flex items-center gap-2.5 min-w-0">
+              ${getClubBadgeSVG(club, 'w-8 h-8')}
+              <div class="truncate">
+                <div class="text-xs sm:text-sm font-bold truncate group-hover:text-cyan-300 transition">
+                  ${club.flag} ${club.name}
+                </div>
+                <div class="text-[10px] text-slate-400 truncate">${club.league}</div>
+              </div>
+            </div>
+            <span class="ml-2 px-2 py-0.5 rounded-lg text-xs font-display font-bold bg-slate-950/90 border border-white/10 text-amber-400">
+              ${club.ovr} OVR
+            </span>
+          </button>
+        `;
+      }).join('');
+    }
+
+    /**
+     * ============================================================================
+     * SÉLECTION DE CLUBS & MISE À JOUR DES CARTES EA FC
+     * ============================================================================
+     */
+    function selectClub(slot, clubId) {
+      if (state.isSimulating) return;
+      const club = CLUBS_DB.find(c => c.id === clubId);
+      if (!club) return;
+
+      if (slot === 1) state.club1 = club;
+      else state.club2 = club;
+
+      playSound('select');
+      resetCenterToReady();
+      renderClubList(slot);
+      updateMatchupUI();
+    }
+
+    function pickRandomClub(slot) {
+      if (state.isSimulating) return;
+      const otherClub = slot === 1 ? state.club2 : state.club1;
+      const candidates = CLUBS_DB.filter(c => c.id !== otherClub.id);
+      const randomClub = candidates[Math.floor(Math.random() * candidates.length)];
+      selectClub(slot, randomClub.id);
+    }
+
+    function randomizeBoth() {
+      if (state.isSimulating) return;
+      const idx1 = Math.floor(Math.random() * CLUBS_DB.length);
+      let idx2 = Math.floor(Math.random() * CLUBS_DB.length);
+      while (idx2 === idx1) {
+        idx2 = Math.floor(Math.random() * CLUBS_DB.length);
+      }
+      state.club1 = CLUBS_DB[idx1];
+      state.club2 = CLUBS_DB[idx2];
+      playSound('select');
+      resetCenterToReady();
+      renderClubList(1);
+      renderClubList(2);
+      updateMatchupUI();
+      showToast(`Nouvelle affiche : ${state.club1.name} vs ${state.club2.name} !`, '🎲');
+    }
+
+    function setQuickMatch(name1, name2) {
+      if (state.isSimulating) return;
+      const c1 = CLUBS_DB.find(c => c.name === name1);
+      const c2 = CLUBS_DB.find(c => c.name === name2);
+      if (c1 && c2) {
+        state.club1 = c1;
+        state.club2 = c2;
+        playSound('select');
+        resetCenterToReady();
+        renderClubList(1);
+        renderClubList(2);
+        updateMatchupUI();
+      }
+    }
+
+    function renderSelectedClubCard(slot, club) {
+      const container = document.getElementById(slot === 1 ? 'homeSelectedDisplay' : 'awaySelectedDisplay');
+      container.style.background = `linear-gradient(135deg, ${club.c1}33 0%, rgba(15, 23, 42, 0.95) 65%, ${club.c2}33 100%)`;
+
+      container.innerHTML = `
+        <div class="flex items-center gap-4">
+          <div class="relative">
+            ${getClubBadgeSVG(club, 'w-16 h-16 sm:w-20 sm:h-20')}
+            <span class="absolute -bottom-1 -right-1 px-2 py-0.5 rounded-md bg-slate-950 border border-amber-400/50 font-display text-sm font-bold text-amber-400 shadow">
+              ${club.ovr}
+            </span>
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
+              <span>${club.flag}</span>
+              <span class="truncate">${club.league}</span>
+            </div>
+            <h2 class="font-display text-2xl sm:text-3xl font-bold uppercase tracking-wide text-white truncate mt-0.5">
+              ${club.name}
+            </h2>
+            <div class="flex flex-wrap gap-1 mt-1.5">
+              ${club.stars.slice(0, 5).map(star => `
+                <span class="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-slate-200 font-medium">
+                  ⭐ ${star}
+                </span>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function updateMatchupUI() {
+      const c1 = state.club1;
+      const c2 = state.club2;
+
+      renderSelectedClubCard(1, c1);
+      renderSelectedClubCard(2, c2);
+
+      // Mise à jour des boutons de pari
+      document.getElementById('betHomeLabel').textContent = c1.short;
+      document.getElementById('betAwayLabel').textContent = c2.short;
+
+      // Mise à jour de la scène centrale (État Prêt)
+      document.getElementById('miniBadge1').innerHTML = getClubBadgeSVG(c1, 'w-16 h-16');
+      document.getElementById('miniBadge2').innerHTML = getClubBadgeSVG(c2, 'w-16 h-16');
+      document.getElementById('matchupTitle').textContent = `${c1.name} vs ${c2.name}`;
+
+      // Calcul indicatif des forces
+      const diff = c1.ovr - c2.ovr;
+      let oddsText = 'Duel très équilibré • Tout peut arriver !';
+      if (c1.id === c2.id) {
+        oddsText = 'Match miroir • Égalité parfaite sur le papier';
+      } else if (diff >= 5) {
+        oddsText = `Avantage ${c1.name} (${c1.ovr} OVR vs ${c2.ovr} OVR)`;
+      } else if (diff <= -5) {
+        oddsText = `Avantage ${c2.name} (${c2.ovr} OVR vs ${c1.ovr} OVR)`;
+      }
+      document.getElementById('oddsIndicator').textContent = oddsText;
+
+      // Retirer la bordure dorée de vainqueur précédent
+      document.getElementById('homeCardWrapper').classList.remove('fut-card-winner');
+      document.getElementById('awayCardWrapper').classList.remove('fut-card-winner');
+    }
+
+    /**
+     * ============================================================================
+     * GESTION DES PRONOSTICS DU JOUEUR
+     * ============================================================================
+     */
+    function selectBet(choice) {
+      if (state.isSimulating) return;
+      state.currentBet = state.currentBet === choice ? null : choice;
+      playSound('select');
+      updateBetButtonsUI();
+    }
+
+    function updateBetButtonsUI() {
+      const btns = {
+        home: document.getElementById('betHomeBtn'),
+        draw: document.getElementById('betDrawBtn'),
+        away: document.getElementById('betAwayBtn')
+      };
+
+      Object.keys(btns).forEach(key => {
+        btns[key].classList.remove('ring-2', 'ring-cyan-400', 'bg-cyan-500/20', 'ring-amber-400', 'bg-amber-500/20', 'ring-purple-400', 'bg-purple-500/20');
+      });
+
+      if (state.currentBet === 'home') {
+        btns.home.classList.add('ring-2', 'ring-cyan-400', 'bg-cyan-500/20');
+      } else if (state.currentBet === 'draw') {
+        btns.draw.classList.add('ring-2', 'ring-amber-400', 'bg-amber-500/20');
+      } else if (state.currentBet === 'away') {
+        btns.away.classList.add('ring-2', 'ring-purple-400', 'bg-purple-500/20');
+      }
+    }
+
+    function resetCenterToReady() {
+      document.getElementById('stateReady').classList.remove('hidden');
+      document.getElementById('stateCountdown').classList.add('hidden');
+      document.getElementById('stateResult').classList.add('hidden');
+      document.getElementById('launchDuelBtn').innerHTML = '<span>⚡ LANCER LE DUEL (3s)</span>';
+    }
+
+    /**
+     * ============================================================================
+     * LANCEMENT DE LA CONFRONTATION & CHRONO DRAMATIQUE DE 3 SECONDES
+     * ============================================================================
+     */
+    function startDuel() {
+      if (state.isSimulating) return;
+      state.isSimulating = true;
+
+      const c1 = state.club1;
+      const c2 = state.club2;
+
+      // Nettoyage visuel
+      document.getElementById('homeCardWrapper').classList.remove('fut-card-winner');
+      document.getElementById('awayCardWrapper').classList.remove('fut-card-winner');
+      document.getElementById('stateReady').classList.add('hidden');
+      document.getElementById('stateResult').classList.add('hidden');
+      document.getElementById('stateCountdown').classList.remove('hidden');
+
+      // Blasons du duel
+      document.getElementById('clashBadge1').innerHTML = getClubBadgeSVG(c1, 'w-14 h-14');
+      document.getElementById('clashBadge2').innerHTML = getClubBadgeSVG(c2, 'w-14 h-14');
+
+      const launchBtn = document.getElementById('launchDuelBtn');
+      launchBtn.disabled = true;
+      launchBtn.classList.add('opacity-60', 'cursor-not-allowed');
+      launchBtn.innerHTML = '<span>⏳ SIMULATION EN COURS...</span>';
+
+      const countdownEl = document.getElementById('countdownNumber');
+      const barEl = document.getElementById('countdownBar');
+      const commentaryEl = document.getElementById('liveCommentary');
+
+      const commentaryPhrases = [
+        '⚡ Analyse tactique et composition des équipes...',
+        '🔥 Coup d\'envoi ! Intensité maximale sur le terrain...',
+        '⚽ Action décisive dans les dernières minutes !'
+      ];
+
+      let timeLeft = 3.0;
+      countdownEl.textContent = '3';
+      barEl.style.width = '100%';
+      commentaryEl.textContent = commentaryPhrases[0];
+      playSound('tick');
+
+      let lastWholeSecond = 3;
+      const startTime = performance.now();
+      const duration = 3000; // 3 secondes exactes
+
+      function updateTimer(now) {
+        const elapsed = now - startTime;
+        const remaining = Math.max(0, duration - elapsed);
+        const progress = (remaining / duration) * 100;
+        barEl.style.width = `${progress}%`;
+
+        const currentWhole = Math.ceil(remaining / 1000);
+        if (currentWhole !== lastWholeSecond && currentWhole > 0) {
+          lastWholeSecond = currentWhole;
+          countdownEl.textContent = currentWhole;
+          if (currentWhole === 2) {
+            commentaryEl.textContent = commentaryPhrases[1];
+            playSound('tick');
+          } else if (currentWhole === 1) {
+            commentaryEl.textContent = commentaryPhrases[2];
+            playSound('tickFinal');
+          }
+        }
+
+        if (remaining > 0) {
+          requestAnimationFrame(updateTimer);
+        } else {
+          // Fin des 3 secondes : révélation du vainqueur !
+          finishDuel();
+        }
+      }
+
+      requestAnimationFrame(updateTimer);
+    }
+
+    /**
+     * ============================================================================
+     * ALGORITHME DE RÉSULTAT RÉALISTE & RÉVÉLATION DU VAINQUEUR
+     * ============================================================================
+     */
+    function finishDuel() {
+      const c1 = state.club1;
+      const c2 = state.club2;
+
+      // Calcul des forces avec facteur surprise footballistique
+      // Avantage domicile léger (+1.5 OVR) + différence OVR + aléa
+      const ratingDiff = (c1.ovr + 1.5) - c2.ovr;
+      const homeExpectedGoals = Math.max(0.4, 1.45 + (ratingDiff * 0.08) + (Math.random() * 1.1 - 0.55));
+      const awayExpectedGoals = Math.max(0.4, 1.35 - (ratingDiff * 0.08) + (Math.random() * 1.1 - 0.55));
+
+      const score1 = samplePoissonGoals(homeExpectedGoals);
+      const score2 = samplePoissonGoals(awayExpectedGoals);
+
+      // Déterminer l'issue
+      let outcome = 'draw'; // 'home' | 'away' | 'draw'
+      if (score1 > score2) outcome = 'home';
+      else if (score2 > score1) outcome = 'away';
+
+      // Génération des minutes de buts & buteurs
+      const events = generateMatchEvents(c1, score1, c2, score2);
+
+      // Possession réaliste influencée par l'OVR
+      const rawPoss = 50 + Math.round(ratingDiff * 0.9 + (Math.random() * 12 - 6));
+      const poss1 = Math.min(72, Math.max(28, rawPoss));
+      const poss2 = 100 - poss1;
+
+      // Calcul réaliste des Tirs cadrés (au moins égal au nombre de buts marqués)
+      const shots1 = Math.max(score1, score1 + Math.floor(Math.random() * 5) + (poss1 > 50 ? 2 : 1));
+      const shots2 = Math.max(score2, score2 + Math.floor(Math.random() * 5) + (poss2 > 50 ? 2 : 1));
+      const totalShots = Math.max(1, shots1 + shots2);
+      const shots1Pct = Math.round((shots1 / totalShots) * 100);
+
+      // Calcul réaliste des Corners (corrélé à la domination offensive et aux tirs)
+      const corners1 = Math.max(1, Math.round((poss1 / 12) + (shots1 * 0.4) + (Math.random() * 3 - 1)));
+      const corners2 = Math.max(1, Math.round((poss2 / 12) + (shots2 * 0.4) + (Math.random() * 3 - 1)));
+      const totalCorners = Math.max(1, corners1 + corners2);
+      const corners1Pct = Math.round((corners1 / totalCorners) * 100);
+
+      // Mise à jour de l'interface
+      document.getElementById('stateCountdown').classList.add('hidden');
+      document.getElementById('stateResult').classList.remove('hidden');
+
+      const announcementEl = document.getElementById('winnerAnnouncement');
+      if (outcome === 'home') {
+        announcementEl.textContent = `🏆 VICTOIRE DE ${c1.name.toUpperCase()} !`;
+        announcementEl.className = 'font-display text-3xl sm:text-4xl font-bold uppercase tracking-wide text-cyan-300 leading-tight';
+        document.getElementById('homeCardWrapper').classList.add('fut-card-winner');
+        triggerVictoryConfetti(c1.c1, c1.c2);
+      } else if (outcome === 'away') {
+        announcementEl.textContent = `🏆 VICTOIRE DE ${c2.name.toUpperCase()} !`;
+        announcementEl.className = 'font-display text-3xl sm:text-4xl font-bold uppercase tracking-wide text-purple-300 leading-tight';
+        document.getElementById('awayCardWrapper').classList.add('fut-card-winner');
+        triggerVictoryConfetti(c2.c1, c2.c2);
+      } else {
+        announcementEl.textContent = `🤝 MATCH NUL ÉPIQUE !`;
+        announcementEl.className = 'font-display text-3xl sm:text-4xl font-bold uppercase tracking-wide text-amber-300 leading-tight';
+      }
+
+      document.getElementById('resHomeShort').textContent = c1.short;
+      document.getElementById('resAwayShort').textContent = c2.short;
+      document.getElementById('resHomeScore').textContent = score1;
+      document.getElementById('resAwayScore').textContent = score2;
+
+      // Affichage des buteurs
+      const eventsContainer = document.getElementById('matchEventsList');
+      if (events.length === 0) {
+        eventsContainer.innerHTML = `<p class="text-slate-400 italic">Duel tactique très fermé, aucune faille trouvée !</p>`;
+      } else {
+        eventsContainer.innerHTML = events.map(ev => `
+          <div class="flex items-center justify-center gap-1.5">
+            <span>⚽</span>
+            <span class="font-bold text-white">${ev.scorer}</span>
+            <span class="text-slate-400">(${ev.teamShort} • ${ev.minute}')</span>
+          </div>
+        `).join('');
+      }
+
+      // Possession, Tirs cadrés & Corners
+      document.getElementById('possHomeText').textContent = `${poss1}%`;
+      document.getElementById('possAwayText').textContent = `${poss2}%`;
+      document.getElementById('possHomeBar').style.width = `${poss1}%`;
+
+      document.getElementById('shotsHomeText').textContent = shots1;
+      document.getElementById('shotsAwayText').textContent = shots2;
+      document.getElementById('shotsHomeBar').style.width = `${shots1Pct}%`;
+
+      document.getElementById('cornersHomeText').textContent = corners1;
+      document.getElementById('cornersAwayText').textContent = corners2;
+      document.getElementById('cornersHomeBar').style.width = `${corners1Pct}%`;
+
+      // Vérification du pronostic du joueur
+      evaluatePlayerBet(outcome);
+
+      // Ajouter à l'historique
+      addToHistory(c1, score1, c2, score2, outcome, { shots1, shots2, corners1, corners2 });
+
+      // Son de victoire
+      playSound('whistle');
+
+      // Réactiver le bouton
+      const launchBtn = document.getElementById('launchDuelBtn');
+      launchBtn.disabled = false;
+      launchBtn.classList.remove('opacity-60', 'cursor-not-allowed');
+      launchBtn.innerHTML = '<span>🔄 REJOUER / NOUVEAU DUEL</span>';
+      state.isSimulating = false;
+    }
+
+    function samplePoissonGoals(lambda) {
+      let L = Math.exp(-lambda);
+      let p = 1.0;
+      let k = 0;
+      do {
+        k++;
+        p *= Math.random();
+      } while (p > L && k < 7);
+      return k - 1;
+    }
+
+    function generateMatchEvents(c1, s1, c2, s2) {
+      const events = [];
+      for (let i = 0; i < s1; i++) {
+        events.push({
+          minute: Math.floor(Math.random() * 90) + 1,
+          scorer: c1.stars[Math.floor(Math.random() * c1.stars.length)],
+          teamShort: c1.short
+        });
+      }
+      for (let i = 0; i < s2; i++) {
+        events.push({
+          minute: Math.floor(Math.random() * 90) + 1,
+          scorer: c2.stars[Math.floor(Math.random() * c2.stars.length)],
+          teamShort: c2.short
+        });
+      }
+      return events.sort((a, b) => a.minute - b.minute);
+    }
+
+    function evaluatePlayerBet(actualOutcome) {
+      const banner = document.getElementById('betOutcomeBanner');
+      if (!state.currentBet) {
+        banner.classList.add('hidden');
+        return;
+      }
+
+      state.stats.totalBets++;
+      banner.classList.remove('hidden', 'bg-emerald-500/20', 'text-emerald-300', 'border-emerald-400/50', 'bg-rose-500/20', 'text-rose-300', 'border-rose-400/50');
+
+      if (state.currentBet === actualOutcome) {
+        const bonus = actualOutcome === 'draw' ? 150 : 100;
+        state.stats.points += bonus;
+        state.stats.streak++;
+        state.stats.wonBets++;
+        banner.textContent = `🎯 PRONOSTIC GAGNÉ ! +${bonus} PTS`;
+        banner.classList.add('bg-emerald-500/20', 'text-emerald-300', 'border', 'border-emerald-400/50');
+      } else {
+        state.stats.streak = 0;
+        banner.textContent = `❌ PRONOSTIC MANQUÉ`;
+        banner.classList.add('bg-rose-500/20', 'text-rose-300', 'border', 'border-rose-400/50');
+      }
+
+      // Mettre à jour l'en-tête
+      document.getElementById('playerPoints').textContent = state.stats.points;
+      document.getElementById('playerStreak').textContent = `${state.stats.streak} 🔥`;
+      const acc = Math.round((state.stats.wonBets / state.stats.totalBets) * 100);
+      document.getElementById('playerAccuracy').textContent = `${acc}%`;
+
+      // Réinitialiser la sélection de pari pour le prochain duel
+      state.currentBet = null;
+      updateBetButtonsUI();
+    }
+
+    function triggerVictoryConfetti(color1, color2) {
+      if (typeof confetti === 'function') {
+        confetti({
+          particleCount: 75,
+          spread: 70,
+          origin: { y: 0.6 },
+          colors: [color1, color2, '#00f0ff', '#fbbf24']
+        });
+      }
+    }
+
+    /**
+     * ============================================================================
+     * HISTORIQUE DES CONFRONTATIONS
+     * ============================================================================
+     */
+    function addToHistory(c1, s1, c2, s2, outcome, stats = { shots1: 0, shots2: 0, corners1: 0, corners2: 0 }) {
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      state.history.unshift({ c1, s1, c2, s2, outcome, timeStr, stats });
+      if (state.history.length > 9) state.history.pop();
+      renderHistory();
+    }
+
+    function renderHistory() {
+      const container = document.getElementById('matchHistoryContainer');
+      if (state.history.length === 0) {
+        container.innerHTML = `
+          <div class="col-span-full text-center py-8 text-sm text-slate-500 border border-dashed border-white/10 rounded-2xl">
+            Aucun duel disputé pour le moment. Choisissez deux clubs et lancez le chrono de 3 secondes !
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = state.history.map(item => `
+        <div class="bg-slate-900/80 border border-white/10 rounded-2xl p-3.5 space-y-2 hover:border-cyan-400/30 transition">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2 min-w-0 flex-1">
+              ${getClubBadgeSVG(item.c1, 'w-8 h-8')}
+              <span class="text-xs font-bold truncate ${item.outcome === 'home' ? 'text-cyan-300' : 'text-slate-300'}">
+                ${item.c1.name}
+              </span>
+            </div>
+
+            <div class="px-2.5 py-1 rounded-xl bg-slate-950 border border-white/10 font-display text-lg font-bold text-white whitespace-nowrap">
+              ${item.s1} - ${item.s2}
+            </div>
+
+            <div class="flex items-center justify-end gap-2 min-w-0 flex-1">
+              <span class="text-xs font-bold truncate text-right ${item.outcome === 'away' ? 'text-purple-300' : 'text-slate-300'}">
+                ${item.c2.name}
+              </span>
+              ${getClubBadgeSVG(item.c2, 'w-8 h-8')}
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-white/5">
+            <span>🎯 Tirs cadrés : <strong class="text-slate-200">${item.stats.shots1} - ${item.stats.shots2}</strong></span>
+            <span>🚩 Corners : <strong class="text-slate-200">${item.stats.corners1} - ${item.stats.corners2}</strong></span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function clearHistory() {
+      state.history = [];
+      renderHistory();
+      showToast('Historique effacé', '🗑️');
+    }
+
+    /**
+     * ============================================================================
+     * NOTIFICATION TOAST ÉLÉGANTE
+     * ============================================================================
+     */
+    let toastTimeout;
+    function showToast(message, icon = '⚽') {
+      const toast = document.getElementById('toastMessage');
+      document.getElementById('toastText').textContent = message;
+      document.getElementById('toastIcon').textContent = icon;
+      toast.classList.remove('translate-y-20', 'opacity-0');
+      clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        toast.classList.add('translate-y-20', 'opacity-0');
+      }, 2600);
+    }
+
+    // Démarrage au chargement de la page
+    window.addEventListener('DOMContentLoaded', initApp);
+  </script>
+</body>
+</html>
